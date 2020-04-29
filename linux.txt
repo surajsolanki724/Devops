@@ -1,6 +1,2 @@
 fisrt line
-
-
-:wq
-
-q
+se cond line
