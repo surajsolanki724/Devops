@@ -1,0 +1,6 @@
+fisrt line
+
+
+:wq
+
+q
