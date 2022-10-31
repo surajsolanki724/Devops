@@ -1,0 +1,66 @@
+---
+
+- name: "{{ server_task_prefix }} - Add DHCP steps"
+  include_tasks: get_mac.yml
+  when:
+    - vm_power_state in vm_exists_states
+
+- name: "{{ server_task_prefix }} - DHCP - Add DHCP server '{{ uoi_adjusted_vm.DHCP_Server }}' to in-memory inventory"
+  ansible.builtin.add_host:
+    name: "{{ uoi_adjusted_vm.DHCP_Server }}"
+    groups:
+      - vmware_vm_creation_dhcp_hosts
+    ansible_connection: winrm
+    ansible_port: 5986
+    ansible_user: "{{ domain_user_name }}"
+    ansible_password: "{{ domain_user_password }}"
+    # ansible_winrm_transport: credssp
+    # ansible_winrm_ca_trust_path: /opt/ansible/tower_windows_host_certs/ca/cacert.pem
+    # Temporarily set to ntlm until DHCP host are properly created with winrm certificates:
+    ansible_winrm_transport: ntlm
+    ansible_winrm_server_cert_validation: ignore
+  no_log: True
+
+- name: "{{ server_task_prefix }} - DHCP - Test connectivity to DHCP server"
+  win_ping:
+  run_once: true
+  delegate_to: "{{ uoi_adjusted_vm.DHCP_Server }}"
+
+- name: "{{ server_task_prefix }} - DHCP - Create DHCP Reservation for VM Guest"
+  win_shell: |-
+    netsh dhcp server \\{{ uoi_adjusted_vm.DHCP_Server }} scope {{ uoi_adjusted_vm.DHCP_Scope_ID }}  add reservedip {{ uoi_adjusted_vm.GuestNIC_IP }} {{ vm_host_mac_address }} "{{ uoi_adjusted_vm.VM_Name }}" "Server - {{ uoi_adjusted_vm.VM_Name }} - {{ uoi_adjusted_vm.VM_Notes_and_DHCP_Description }}"
+  run_once: true
+  delegate_to: "{{ uoi_adjusted_vm.DHCP_Server }}"
+  register: win_dhcp_reservation_creation
+  when:
+    - vm_power_state in vm_exists_states
+  changed_when:
+    - win_dhcp_reservation_creation.rc == 0
+  failed_when:
+    - win_dhcp_reservation_creation.rc == 1
+    - '"hardware address is being used" not in win_dhcp_reservation_creation.stdout'
+
+- name: "{{ server_task_prefix }} - DHCP - Remove DHCP Reservation for VM Guest if state is 'absent'"
+  community.windows.win_dhcp_lease:
+    ip: "{{ uoi_adjusted_vm.GuestNIC_IP }}"
+    state: absent
+  run_once: true
+  delegate_to: "{{ uoi_adjusted_vm.DHCP_Server }}"
+  register: win_dhcp_reservation_deletion
+  when:
+    - vm_power_state in ['absent']
+
+- name: "{{ server_task_prefix }} - DHCP - Remove Computer Object from Active Directory if state is 'absent'"
+  community.windows.win_domain_computer:
+    domain_server: "{{ uoi_adjusted_vm.Domain_Name }}"
+    domain_password: "{{ domain_user_password }}"
+    domain_username: "{{ domain_user_name }}"
+    name: "{{ uoi_adjusted_vm.VM_Name }}" 
+    ou: "{{ uoi_adjusted_vm.Domain_OU | replace('\"','') }}"
+    state: absent
+  run_once: true
+  delegate_to: "{{ uoi_adjusted_vm.DHCP_Server }}"
+  when:
+    - vm_power_state in ['absent']
+
+...

@@ -1,0 +1,63 @@
+---
+
+- name: "{{ server_task_prefix }} - Create vm data structure with disk information"
+  vars:
+    wait_steps: "{{ (vm_power_state not in vm_exists_states) | ternary(False,True) }}"
+  set_fact:
+    vm_content:
+      name: "{{ uoi_adjusted_vm.VM_Name }}"
+      validate_certs: "{{ vmware_validate_certificate }}"
+      datacenter: '{{ uoi_adjusted_vm.VM_Datacenter }}'
+      resource_pool: '{{ uoi_adjusted_vm.VM_Resource_Pool }}'
+      folder: '{{ uoi_adjusted_vm.VM_Folder }}' # Review folder structure with existing working code...
+      template: "{{ uoi_adjusted_vm.VM_Template }}"
+      state: "{{ vm_power_state | mandatory }}"
+      annotation: "{{ uoi_adjusted_vm.VM_Notes_and_DHCP_Description }}"
+      convert: "{{ desired_disk_type }}"
+      networks:
+      - name: "{{ uoi_adjusted_vm.VM_Network }}"
+        ip: "{{ uoi_adjusted_vm.GuestNIC_IP }}"
+        netmask: "{{ uoi_adjusted_vm.GuestNIC_Netmask }}"
+        gateway: "{{ uoi_adjusted_vm.GuestNIC_Gateway }}"
+        type: static
+        dns_servers:
+        - "{{ uoi_adjusted_vm.GuestNIC_DNS }}"
+        start_connected: yes
+      wait_for_ip_address: "{{ wait_steps | default(True) }}"
+      #dns needs to be added here
+      hardware:
+        memory_mb: "{{ (uoi_adjusted_vm.VM_Memory | human_to_bytes) * 1024| int}}"
+        num_cpus:  "{{ uoi_adjusted_vm.VM_CPU }}"
+      customization_spec: "{{ uoi_adjusted_vm.VM_Custom_Specs }}"
+      wait_for_customization: "{{ wait_steps | default(True) }}"
+
+- name: "{{ server_task_prefix }} - Diplay structured VM content"
+  debug:
+    var: vm_content
+  when:
+    - debug_runtime | default(False) | bool
+  
+- name: "{{ server_task_prefix }} - Add tasks to ensure folders exists for vm location"
+  include_tasks: "create_folder_for_vm.yml"
+
+- name: "{{ server_task_prefix }} - Set virtual machine state to '{{ vm_power_state }}'"
+  community.vmware.vmware_guest: "{{ vm_content }}" 
+  register: vm_guest_creation
+
+- name: Sleep for 60 seconds and continue with play
+  wait_for:
+    timeout: 60
+  delegate_to: localhost
+  when: vm_power_state in ['rebootguest','reboot-guest','restarted']
+
+- name: Wait for VMware tools to become available.
+  community.vmware.vmware_guest_tools_wait:
+    name: "{{ uoi_adjusted_vm.VM_Name }}"
+    folder: "{{ uoi_adjusted_vm.VM_Folder}}"
+  delegate_to: localhost
+  register: facts
+  when:
+    - vm_power_state in vm_exists_states
+    - vm_guest_creation.changed | bool
+
+...

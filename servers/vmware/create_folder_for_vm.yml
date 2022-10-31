@@ -1,0 +1,22 @@
+---
+
+- name: "{{ server_task_prefix }} - Create folder where VM will be created"
+  vars:
+    folder_modified_path: "{{ (uoi_adjusted_vm.VM_Folder).split('/')[1:(folder_index + 1)] }}"
+    folder_root_folder_path: "{{ (uoi_adjusted_vm.VM_Folder).split('/')[0] }}"
+    formatted_parent_folder: "{{ ([folder_root_folder_path] + folder_modified_path) | join('/') }}"
+  community.vmware.vcenter_folder:
+    datacenter_name: "{{ uoi_adjusted_vm.VM_Datacenter }}"
+    folder_name: "{{ folder_to_create }}"
+    parent_folder: "{{ formatted_parent_folder }}"
+    folder_type: vm
+    state: present
+  when:
+    - vm_power_state in vm_exists_states
+  loop: "{{ (uoi_adjusted_vm.VM_Folder).split('/')[1:] }}"
+  loop_control:
+    loop_var: folder_to_create
+    index_var: folder_index
+    label: "Attempting to create {{ folder_to_create }} inside of {{ formatted_parent_folder }}"
+
+...

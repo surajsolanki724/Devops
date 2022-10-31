@@ -1,0 +1,98 @@
+---
+
+- hosts: localhost
+  gather_facts: no
+  vars:
+    # guest_network_device_type: "vmxnet3"
+
+    # Adds a field to optionally show ouptut if needed:
+    debug_runtime: False
+
+    # VMWare module certificate validation required:
+    vmware_validate_certificate: False
+
+    # What is the state of the VM(s) you wish to use:
+    # Caution: This can delete/create/modify VM(s) from the CSV file:
+    vm_power_state: present
+
+    # Limits the hosts to be created to 2 if set to True
+    vm_build_limit_hosts: True
+
+    # Set which states to use for when a VM is to exist:
+    vm_exists_states:
+      - poweredon
+      - powered-on
+      - present
+      - rebootguest
+      - reboot-guest
+      - restarted
+
+    # Set the CSV file location:
+    csv_file: /opt/ansible/tower_access_folder/Ansible_Build_Vars.csv
+
+    # Set the prefix of the column name for drives/disks to filter from:
+    drive_prefix: 'Drive_'
+
+    # Set the controller type:
+    vm_disk_controller_scsi_type: 'paravirtual'
+
+    # Set the disk provisioning method:
+    desired_disk_type: thin
+
+    #Path to store CA and Server certs to be used by winrm
+    openssl_ownca_dir: "/opt/ansible/tower_windows_host_certs/ca"
+    server_certs_dir: "/opt/ansible/tower_windows_host_certs/certs"
+
+  tasks:
+
+    - name: "'{{ csv_file }}' - Run tasks to pull in CSV data"
+      include_tasks: "{{ playbook_dir }}/csv/read_csv_file.yml"
+
+    - name: "'{{ csv_file }}' - Parse and structure vm data"
+      include_tasks: "{{ playbook_dir }}/csv/separate_disks.yml"
+
+    - name: "'{{ csv_file }}' - Truncate server list for build testing"
+      set_fact:
+        uoi_environment:
+          servers: "{{ uoi_environment.servers[:2] }}"
+      when:
+        - vm_build_limit_hosts | default(True) | bool
+
+    - name: "'{{ csv_file }}' - Iterate through CSV server list and manage hosts"
+      vars:
+        server_task_prefix: "Host: '{{ uoi_vm.VM_Name }}'"
+      include_tasks: "{{ playbook_dir }}/servers/uoi_server_tasks.yml"
+      loop: "{{ uoi_environment.servers }}"
+      loop_control:
+        loop_var: uoi_vm
+        label: "Formatting host: '{{ uoi_vm.VM_Name }}'"
+        
+# This group name 'vmware_creation_host_group' is created inside 'servers/inventory/add_to_in_memory_inventory.yml' using the add_host module.
+- hosts: vmware_creation_host_group
+  gather_facts: '{{ (vm_power_state in "{{ vm_exists_states }}") | ternary(true, false) }}'
+  vars:
+
+    uoi_admins:
+      - "{{ domain_user_name }}"
+      - 'uofi\fandsserveradmins'
+    additional_uoi_admins: []
+
+  tasks:
+
+    - name: Testing host connectivity
+      win_ping:
+      when:
+        - vm_power_state in vm_exists_states
+
+    - name: "Add tasks to manage host in Active Directory"
+      include_tasks: "{{ playbook_dir }}/servers/domain/main.yml"
+
+    - name: Iterate through servers
+      include_tasks: "{{ playbook_dir }}/servers/disks/add_disk_to_vm.yml"
+      when:
+        - vm_power_state in vm_exists_states
+    
+    - name: Hardening Windows
+      include_tasks: post_vm_install/main.yml
+
+...

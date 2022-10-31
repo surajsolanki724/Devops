@@ -1,0 +1,41 @@
+---
+
+- name: "{{ server_task_prefix }} - Setup prerequired variables for execution"
+  vars:
+    uoi_updated_environment: "{{ uoi_vm.App_Env }}"
+    uoi_updated_server_data: "{{ uoi_vm | replace('<ENV>',uoi_updated_environment) | replace('<env>',(uoi_updated_environment | lower)) }}"
+  set_fact:
+    uoi_disk_data: []
+    uoi_all_disk_data: []
+    uoi_environment: "{{ uoi_updated_environment }}"
+    uoi_adjusted_vm: "{{ uoi_updated_server_data }}"
+
+- name: "{{ server_task_prefix }} - Iterate through disks on {{ uoi_adjusted_vm.VM_Name }}"
+  vars:
+    drive_letter: "{{ uoi_vm_disk.key | replace(drive_prefix,'') }}"
+    drive_label: "{{ uoi_adjusted_vm['Label_' + drive_letter] | default('') }}"
+    size_gb: "{{ uoi_vm_disk.value | default('') }}"
+  include_tasks: "../csv/restructure_disk_info_for_iteration.yml"
+  loop: "{{ uoi_adjusted_vm.disks | dict2items }}"
+  loop_control:
+    loop_var: uoi_vm_disk
+    index_var: vm_disk_index
+    label: "{{ server_task_prefix }} - Adding data for drive: '{{ uoi_vm_disk.key }}'"
+
+- name: "{{ server_task_prefix }} - Add tasks to create virtual machine guest"
+  include_tasks: "vmware/create_vm_guest.yml"
+
+# This should always run as DHCP steps need to occur on creation and deletion:
+- name: "{{ server_task_prefix }} - Add DHCP tasks"
+  include_tasks: "dhcp/main.yml"
+    
+- name: "{{ server_task_prefix }} - Add WinRM tasks"
+  include_tasks: "winrm/main.yml"
+
+- name: "{{ server_task_prefix }} - Add tasks to create missing disks"
+  include_tasks: "disks/create_missing_disks.yml"
+
+- name: "{{ server_task_prefix }} - Add tasks to associate host to in-memory inventory"
+  include_tasks: "inventory/add_to_in_memory_inventory.yml"
+
+...
