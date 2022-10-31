@@ -1,0 +1,39 @@
+---
+
+- name: "{{ server_task_prefix }} create SSL certificate for winrm"
+  include_tasks: ssl_for_winrm.yml
+  when:
+    - vm_power_state in vm_exists_states
+    - vm_guest_creation.changed | bool
+
+- name: "{{ server_task_prefix }} - Enable WinRM"
+  vmware_vm_shell:
+    validate_certs: no
+    vm_username: "{{ ansible_user }}"
+    vm_password: "{{ ansible_password }}"
+    vm_id: "{{ uoi_adjusted_vm.VM_Name }}"
+    vm_shell: 'c:\windows\system32\windowspowershell\v1.0\powershell.exe'
+    vm_shell_cwd: 'C:\Windows\Temp'
+    vm_shell_args: "{{ winrm_setup }}"
+    wait_for_process: true
+  loop:
+    - '-command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri https://raw.githubusercontent.com/ansible/ansible/devel/examples/scripts/ConfigureRemotingForAnsible.ps1 -OutFile C:\Users\ambermoe\ConfigureRemotingForAnsible.ps1"'
+    - 'C:\Users\ambermoe\ConfigureRemotingForAnsible.ps1 -DisableBasicAuth:$true -CertValidityDays 3650 -EnableCredSSP -Verbose'
+    - '-command "Get-ChildItem WSMan:\Localhost\listener | Where -Property Keys -eq "Transport=HTTPS" | Remove-Item -Recurse"'
+    - '-command "& {$srvcert = Get-ChildItem -Path "c:\{{ uoi_adjusted_vm.VM_Name }}.pfx" | Import-PFXCertificate -CertStoreLocation "Cert:\LocalMachine\MY" -Exportable; New-Item -Path WSMan:\LocalHost\Listener -Transport HTTPS -Address * -CertificateThumbPrint $srvcert.Thumbprint –Force}"'
+  loop_control:
+    loop_var: winrm_setup
+  register: win_rm
+  when:
+    - vm_power_state in vm_exists_states
+    - vm_guest_creation.changed | bool
+
+- name: "{{ server_task_prefix }} - Show winrm output"
+  debug:
+    var: win_rm     
+  when:
+    - vm_power_state in vm_exists_states
+    - debug_runtime | default(False) | bool
+    - vm_guest_creation.changed | bool
+
+...

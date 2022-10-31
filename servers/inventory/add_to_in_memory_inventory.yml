@@ -1,0 +1,21 @@
+---
+
+- name: "{{ server_task_prefix }} - Add to Inventory - Associate to group 'vmware_creation_host_group'"
+  ansible.builtin.add_host:
+    name: "{{ uoi_adjusted_vm.VM_Name }}"
+    ansible_host: "{{ uoi_adjusted_vm.GuestNIC_IP }}"
+    groups:
+      - vmware_creation_host_group
+    uoi_vm: "{{ uoi_adjusted_vm }}"
+    vm_host_disk_creation: "{{ vm_host_disk_creation }}"
+    uoi_all_disk_data: "{{ uoi_all_disk_data }}"
+    vm_power_state: "{{ vm_power_state }}"
+    vm_exists_states: "{{ vm_exists_states }}"
+    ansible_connection: winrm
+    ansible_port: 5986
+    ansible_winrm_transport: credssp
+    ansible_winrm_ca_trust_path: /opt/ansible/tower_windows_host_certs/ca/cacert.pem
+  when:
+    - vm_power_state in vm_exists_states
+
+...

@@ -1,0 +1,26 @@
+---
+
+- name: "{{ server_task_prefix }} - DHCP - Gather some info from a guest using the vSphere API output schema"
+  community.vmware.vmware_guest_info:
+    datacenter: "{{ uoi_adjusted_vm.VM_Datacenter }}"
+    name: "{{ uoi_adjusted_vm.VM_Name }}"
+    schema: "vsphere"
+    properties: ["guest.net"]
+  delegate_to: localhost
+  register: guest_info
+  until: guest_info.instance.guest.net | length > 0
+  delay: 30
+  retries: 10
+
+- name: "{{ server_task_prefix }} - DHCP - Ensure only 1 MAC address is found on VM Guest"
+  assert:
+    that:
+      - guest_info.instance.guest.net | to_json | from_json | json_query('[].macAddress') | length == 1
+    success_msg: "Successfully found only one MAC on the host: '{{ guest_info.instance.guest.net | to_json | from_json | json_query('[].macAddress') | first }}'"  
+    fail_msg: "Faied to either find a MAC address or found too many (multiple NIC cards): '{{ guest_info.instance.guest.net | to_json | from_json | json_query('[].macAddress') }}'"  
+
+- name: "{{ server_task_prefix }} - DHCP - Set MAC address fact for VM Guest"
+  set_fact:
+    vm_host_mac_address: "{{ guest_info.instance.guest.net | to_json | from_json | json_query('[].macAddress') | first | replace(':','') }}"
+
+...
